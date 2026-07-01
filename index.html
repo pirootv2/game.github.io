@@ -2,8 +2,15 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>BOMBER MAN? ONLINE</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BOMBER MAN ONLINE</title>
     <style>
+        * {
+            box-sizing: border-box;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
         body {
             background-color: #1a1a1a;
             margin: 0;
@@ -14,36 +21,93 @@
             height: 100vh;
             width: 100vw;
             overflow: hidden;
-            user-select: none;
+        }
+        #gameWrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100vw;
+            height: 100vh;
+            padding: 10px;
         }
         canvas {
             background-color: #27ae60;
-            border: 12px solid #34495e;
-            box-shadow: 0px 0px 30px rgba(0,0,0,0.8);
+            border: 8px solid #34495e;
+            box-shadow: 0px 0px 20px rgba(0,0,0,0.8);
             cursor: pointer;
-            max-width: 95vw;
-            max-height: 95vh;
-            width: auto;
-            height: auto;
+            width: 100%;
+            max-width: 500px; /* モバイルで見やすいサイズに調整 */
+            max-height: 60vh; /* 縦幅に余裕を持たせる */
             aspect-ratio: 1 / 1;
         }
+        /* モバイル用コントローラー全体のコンテナ */
+        #mobileControls {
+            display: none; 
+            width: 100%;
+            max-width: 500px;
+            height: 180px;
+            margin-top: 15px;
+            position: relative;
+            background-color: rgba(0, 0, 0, 0.4);
+            border-radius: 20px;
+            padding: 10px;
+        }
+        .v-btn {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 12px;
+            color: #fff;
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            touch-action: none;
+        }
+        .v-btn:active {
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+        /* 十字キー（左側に集約） */
+        #btnUp    { left: 70px;  top: 15px;  width: 50px; height: 50px; }
+        #btnDown  { left: 70px;  top: 115px; width: 50px; height: 50px; }
+        #btnLeft  { left: 15px;  top: 65px;  width: 50px; height: 50px; }
+        #btnRight { left: 125px; top: 65px;  width: 50px; height: 50px; }
+        
+        /* 爆弾ボタン（右側に配置・押しやすく大きく） */
+        #btnBomb  { right: 25px; top: 35px;  width: 110px; height: 110px; border-radius: 50%; background-color: rgba(231, 76, 60, 0.5); border-color: #e74c3c; font-size: 18px;}
+        #btnBomb:active { background-color: rgba(231, 76, 60, 0.8); }
     </style>
 </head>
 <body>
 
-    <canvas id="gameCanvas" width="880" height="880"></canvas>
+    <div id="gameWrapper">
+        <canvas id="gameCanvas" width="880" height="880"></canvas>
+        
+        <div id="mobileControls">
+            <div class="v-btn" id="btnUp">▲</div>
+            <div class="v-btn" id="btnDown">▼</div>
+            <div class="v-btn" id="btnLeft">◀</div>
+            <div class="v-btn" id="btnRight">▶</div>
+            <div class="v-btn" id="btnBomb">💥BOMB</div>
+        </div>
+    </div>
 
     <script>
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
+        const mobileControls = document.getElementById("mobileControls");
 
         const TILE_SIZE = 80; 
         const COLS = 11;
         const ROWS = 11;
 
-        let playerName = "PLAYER"; // ログイン名
+        let playerName = "PLAYER"; 
         let currentStage = 1;
-        let gameState = "PLAY"; // "PLAY", "GAMEOVER", "CLEAR", "SENDING"
+        let controlMode = "PC"; 
+        let gameState = "TITLE"; 
+        
         let map = [];
         let player = {};
         let enemies = [];
@@ -52,7 +116,7 @@
         let keys = {};       
         let globalRankings = []; 
 
-        const BIN_ID = "6682f9c4acd3cb34a8607a9e"; // 共有オンラインDB
+        const BIN_ID = "6682f9c4acd3cb34a8607a9e"; 
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         const BASE_MAP = [
@@ -78,17 +142,16 @@
             return { enemyCount, enemySpeed, blockDensity };
         }
 
-        // ログイン処理（初回起動時のみ実行）
         function loginUser() {
-            let input = prompt("【BOMBER MASTER ONLINE】\nランキングに使用する名前を入力してログインしてください:", "PLAYER");
+            let input = prompt("【BOMBER MASTER ONLINE】\n名前を入力してログインしてください:", "PLAYER");
             if (input && input.trim() !== "") {
                 playerName = input.trim().substring(0, 10);
             }
         }
 
         function initGame(stageNum, resetPlayerItems = false) {
-            currentStage = stageNum;
             gameState = "PLAY";
+            currentStage = stageNum;
             bombs = [];
             explosions = [];
 
@@ -141,6 +204,17 @@
             }
         }
 
+        function placeBomb() {
+            if (gameState === "PLAY" && player.bombsPlaced < player.maxBombs) {
+                let gridX = player.gx;
+                let gridY = player.gy;
+                if (!bombs.some(b => b.gx === gridX && b.gy === gridY)) {
+                    bombs.push({ gx: gridX, gy: gridY, timer: 120 });
+                    player.bombsPlaced++;
+                }
+            }
+        }
+
         async function fetchRankings() {
             try {
                 let res = await fetch(API_URL + "/latest");
@@ -150,25 +224,16 @@
         }
 
         async function sendScore() {
-            await fetchRankings(); // 最新データを取得
-
-            // 【修正】同名プレイヤーの重複判定・上書き処理
+            await fetchRankings();
             let existingPlayerIndex = globalRankings.findIndex(entry => entry.name === playerName);
-            
             if (existingPlayerIndex !== -1) {
-                // すでに名前が存在する場合、今回の記録の方が高ければ上書き
                 if (currentStage > globalRankings[existingPlayerIndex].stage) {
                     globalRankings[existingPlayerIndex].stage = currentStage;
                 }
             } else {
-                // 新しい名前の場合はそのまま追加
                 globalRankings.push({ name: playerName, stage: currentStage });
             }
-
-            // スコア（ステージ）順に並び替えて上位10件のみ残す
-            globalRankings.sort((a, b) => b.stage - a.stage);
-            globalRankings = globalRankings.slice(0, 10);
-
+            globalRankings.sort((a, b) => b.stage - a.stage).splice(10);
             try {
                 await fetch(API_URL, {
                     method: "PUT",
@@ -176,29 +241,49 @@
                     body: JSON.stringify({ scores: globalRankings })
                 });
             } catch (e) { console.log("スコア送信失敗"); }
-            
             gameState = "GAMEOVER"; 
         }
 
+        // --- 入力制御 ---
         window.addEventListener("keydown", e => {
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
             keys[e.key] = true;
+            if (gameState === "PLAY" && e.key === " ") placeBomb();
+            else if (gameState === "CLEAR" && e.key === " ") handleResetAction();
+        });
+        window.addEventListener("keyup", e => { keys[e.key] = false; });
 
-            if (gameState === "PLAY") {
-                if (e.key === " " && player.bombsPlaced < player.maxBombs) {
-                    let gridX = player.gx;
-                    let gridY = player.gy;
-                    if (!bombs.some(b => b.gx === gridX && b.gy === gridY)) {
-                        bombs.push({ gx: gridX, gy: gridY, timer: 120 });
-                        player.bombsPlaced++;
-                    }
+        function setupMobileEvents(id, keyName) {
+            const btn = document.getElementById(id);
+            btn.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; });
+            btn.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; });
+        }
+        setupMobileEvents("btnUp", "ArrowUp");
+        setupMobileEvents("btnDown", "ArrowDown");
+        setupMobileEvents("btnLeft", "ArrowLeft");
+        setupMobileEvents("btnRight", "ArrowRight");
+        document.getElementById("btnBomb").addEventListener("touchstart", (e) => { e.preventDefault(); placeBomb(); });
+
+        canvas.addEventListener("click", e => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+            const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+
+            if (gameState === "TITLE") {
+                if (clickX >= 140 && clickX <= 420 && clickY >= 500 && clickY <= 600) {
+                    controlMode = "PC";
+                    mobileControls.style.display = "none";
+                    initGame(1, true);
                 }
-            } else if (gameState === "CLEAR") {
+                if (clickX >= 460 && clickX <= 740 && clickY >= 500 && clickY <= 600) {
+                    controlMode = "MOBILE";
+                    mobileControls.style.display = "block"; 
+                    initGame(1, true);
+                }
+            } else {
                 handleResetAction();
             }
         });
-        window.addEventListener("keyup", e => { keys[e.key] = false; });
-        canvas.addEventListener("click", handleResetAction);
 
         function handleResetAction() {
             if (gameState === "GAMEOVER") {
@@ -210,7 +295,6 @@
 
         function triggerGameOver() {
             gameState = "SENDING";
-            // プロンプトを出さずに非同期で即座にデータ更新処理へ進む
             sendScore();
         }
 
@@ -277,8 +361,8 @@
             if (player.y < player.gy * TILE_SIZE) player.y = Math.min(player.y + player.speed, player.gy * TILE_SIZE);
             if (player.y > player.gy * TILE_SIZE) player.y = Math.max(player.y - player.speed, player.gy * TILE_SIZE);
 
-            if (map[player.gy][player.gx] === 3) { player.fireRange++; map[player.gy][player.gx] = 0; }
-            if (map[player.gy][player.gx] === 4) { player.maxBombs++; map[player.gy][player.gx] = 0; }
+            if (map[player.gy][player.gx] === 3) { player.fireRange += 1; map[player.gy][player.gx] = 0; }
+            if (map[player.gy][player.gx] === 4) { player.maxBombs += 1; map[player.gy][player.gx] = 0; }
 
             bombs.forEach((bomb, index) => {
                 bomb.timer--;
@@ -345,6 +429,43 @@
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#27ae60";
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+
+            if (gameState === "TITLE") {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.textAlign = "center";
+                ctx.fillStyle = "#f1c40f";
+                ctx.font = "bold 64px monospace";
+                ctx.fillText("BOMBER MASTER", canvas.width / 2, 220);
+                ctx.fillStyle = "#2ecc71";
+                ctx.font = "bold 32px monospace";
+                ctx.fillText("ONLINE MULTI-STAGE", canvas.width / 2, 280);
+
+                ctx.fillStyle = "#fff";
+                ctx.font = "24px monospace";
+                ctx.fillText(`WELCOME: ${playerName}`, canvas.width / 2, 380);
+                ctx.fillText("SELECT YOUR CONTROL MODE", canvas.width / 2, 430);
+
+                // PC MODE ボタン
+                ctx.fillStyle = "#34495e"; ctx.fillRect(140, 500, 280, 100);
+                ctx.strokeStyle = "#fff"; ctx.lineWidth = 4; ctx.strokeRect(140, 500, 280, 100);
+                ctx.fillStyle = "#fff"; ctx.font = "bold 28px monospace";
+                ctx.fillText("PC MODE", 280, 545);
+                ctx.font = "16px monospace"; ctx.fillText("(KEYBOARD / SPACE)", 280, 575);
+
+                // MOBILE MODE ボタン
+                ctx.fillStyle = "#2980b9"; ctx.fillRect(460, 500, 280, 100);
+                ctx.strokeRect(460, 500, 280, 100);
+                ctx.fillStyle = "#fff"; ctx.font = "bold 28px monospace";
+                ctx.fillText("MOBILE MODE", 600, 545);
+                ctx.font = "16px monospace"; ctx.fillText("(VIRTUAL PAD)", 600, 575);
+
+                ctx.textAlign = "left";
+                return;
+            }
 
             for (let r = 0; r < ROWS; r++) {
                 for (let c = 0; c < COLS; c++) {
@@ -401,9 +522,8 @@
                 ctx.fillStyle = "#e91e63"; ctx.beginPath(); ctx.arc(px, py - 36, 8, 0, Math.PI*2); ctx.fill();
             }
 
-            // ステージ数 & ログインユーザー名表示
             ctx.fillStyle = "rgba(0,0,0,0.6)";
-            ctx.fillRect(10, 10, 240, 40);
+            ctx.fillRect(10, 10, 280, 40);
             ctx.fillStyle = "#fff";
             ctx.font = "bold 18px monospace";
             ctx.fillText(`STAGE ${currentStage} [ ${playerName} ]`, 20, 36);
@@ -453,7 +573,7 @@
                     ctx.fillText("STAGE CLEAR", canvas.width / 2, canvas.height / 2 - 20);
                     ctx.fillStyle = "#fff";
                     ctx.font = "24px monospace";
-                    ctx.fillText("CLICK OR PRESS SPACE FOR NEXT STAGE", canvas.width / 2, canvas.height / 2 + 40);
+                    ctx.fillText(controlMode === "PC" ? "PRESS SPACE FOR NEXT STAGE" : "CLICK FOR NEXT STAGE", canvas.width / 2, canvas.height / 2 + 40);
                 }
                 ctx.textAlign = "left"; 
             }
@@ -465,9 +585,7 @@
             requestAnimationFrame(loop);
         }
 
-        // ログイン起動 -> 初期スタート
         loginUser();
-        initGame(1, true);
         loop();
     </script>
 </body>
